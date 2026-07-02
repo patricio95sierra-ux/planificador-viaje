@@ -322,6 +322,20 @@
   }
   .modal-box input:focus, .modal-box select:focus{outline:none;border-color:var(--sky);}
   .modal-actions{display:flex;justify-content:flex-end;gap:10px;}
+  .time-picker-row{display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:18px;}
+  .time-picker-row select{
+    font-family:'Public Sans',sans-serif;font-size:22px;font-weight:600;color:var(--ink);
+    border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--paper-dim);width:auto;
+  }
+  .time-picker-colon{font-family:'Montserrat',sans-serif;font-size:22px;font-weight:700;color:var(--ink);}
+  .time-btn{
+    width:100%;text-align:left;background:transparent;border:1px solid transparent;border-radius:6px;
+    padding:6px;font-family:'Public Sans',sans-serif;font-size:13px;color:var(--ink);cursor:pointer;
+    display:flex;align-items:center;gap:6px;
+  }
+  .time-btn:hover{border-color:var(--line);background:var(--paper-dim);}
+  .time-btn .clock-ico{font-size:12px;color:var(--slate);}
+  .time-btn.empty{color:var(--slate);}
 
   @media(max-width:600px){
     .pass{flex-basis:210px;}
@@ -504,6 +518,7 @@
 <footer class="foot">LOS DATOS SE GUARDAN Y SE SINCRONIZAN AUTOMÁTICAMENTE EN TODOS LOS DISPOSITIVOS QUE ABRAN ESTE ENLACE</footer>
 
 <div class="modal-overlay" id="modalOverlay"><div class="modal-box" id="modalBox"></div></div>
+<datalist id="destinosDatalist"></datalist>
 
 <!-- Firebase SDK — versión "compat" (sin módulos ES), tal como pide la guía de publicación -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -585,7 +600,7 @@ const TABS = [
 const CATEGORIAS = ['Hoteles','Traslados','Excursiones','Comida','Extras','Compras'];
 const CATEGORIAS_MANUAL = ['Comida','Extras','Compras'];
 const CAT_COLORS = {Hoteles:'#1F4E79', Traslados:'#4E8FC4', Excursiones:'#9FC6E3', Comida:'#C9A876', Extras:'#8FA0C7', Compras:'#8C7350'};
-const TIPOS_TRASLADO = ['Vuelo','Tren','Bus','Auto / Taxi','Barco','Otro'];
+const TIPOS_TRASLADO = ['Avión','Barco','Tren','Bus','Auto','Taxi','Otro'];
 const LEGACY_KEY = 'trip-data';
 const INDEX_KEY = 'trips-index';
 function tripKey(id){ return id === 'legacy' ? LEGACY_KEY : `trip-${id}`; }
@@ -655,6 +670,8 @@ async function loadTripData(id){
   }catch(e){
     state = blankTrip();
   }
+  const TIPO_MIGRATE = {'Vuelo':'Avión', 'Auto / Taxi':'Auto'};
+  state.traslados.forEach(t=>{ if(TIPO_MIGRATE[t.tipo]) t.tipo = TIPO_MIGRATE[t.tipo]; });
 }
 
 let storageUnavailableWarned = false;
@@ -841,6 +858,7 @@ function gastoTotalDestino(destinoId){
 
 /* ============ RESUMEN ============ */
 function renderResumen(){
+  updateDestinosDatalist();
   // pass cards
   const row = document.getElementById('passRow');
   row.innerHTML = '';
@@ -1066,6 +1084,18 @@ function fmtShort(n){
 
 /* ============ generic grouped-table renderer ============ */
 /* fields: [{key,label,type:'text'|'number'|'date'|'time'|'select'|'checkbox'|'computed',options?,money?,compute?}] */
+function normalizeTime24(raw){
+  const digits = (raw||'').replace(/[^0-9]/g,'');
+  if(digits.length === 0) return '';
+  let h, m;
+  if(digits.length <= 2){ h = digits; m = '00'; }
+  else if(digits.length === 3){ h = digits.slice(0,1); m = digits.slice(1,3); }
+  else { h = digits.slice(0,2); m = digits.slice(2,4); }
+  h = Math.min(23, parseInt(h,10)||0);
+  m = Math.min(59, parseInt(m,10)||0);
+  return String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0');
+}
+
 function renderGroupedTable(containerId, listKey, fields, emptyLabel, sortField){
   const container = document.getElementById(containerId);
   const prevScroller = container.querySelector('.table-scroll');
@@ -1109,6 +1139,8 @@ function renderGroupedTable(containerId, listKey, fields, emptyLabel, sortField)
         html += `<td><div class="computed-val">${f.money ? fmt(computed) : escapeHtml(computed)}</div></td>`;
       } else if(f.type === 'textarea'){
         html += `<td class="cellwrap"><textarea data-field="${f.key}" rows="1" placeholder="Un ítem por línea">${escapeHtml(val)}</textarea></td>`;
+      } else if(f.type === 'time24'){
+        html += `<td class="cellwrap"><button type="button" class="time-btn${val?'':' empty'}" data-field="${f.key}" data-timebtn="1"><span class="clock-ico">&#128337;</span>${val || 'Elegir hora'}</button></td>`;
       } else {
         html += `<td class="cellwrap${f.money?' money':''}">${f.money?`<div class="money-wrap"><span class="currency-prefix">${escapeHtml(state.meta.moneda)}</span><input data-field="${f.key}" type="${f.type}" step="0.01" min="0" value="${escapeHtml(val)}" placeholder="0.00"></div>`:`<input data-field="${f.key}" type="${f.type}" value="${escapeHtml(val)}" placeholder="">`}</td>`;
       }
@@ -1124,7 +1156,19 @@ function renderGroupedTable(containerId, listKey, fields, emptyLabel, sortField)
   container.querySelectorAll('tr[data-id]').forEach(row=>{
     const id = row.dataset.id;
     const item = items.find(x=>x.id===id);
-    row.querySelectorAll('[data-field]').forEach(inp=>{
+    row.querySelectorAll('[data-timebtn]').forEach(btn=>{
+      btn.addEventListener('click', async ()=>{
+        const key = btn.dataset.field;
+        const result = await showTimePicker(item[key]);
+        if(result){
+          item[key] = result;
+          queueSave(); renderResumen();
+          if(fields.some(f=>f.type==='computed')) renderTableFor(listKey);
+          else { btn.textContent = ''; btn.innerHTML = `<span class="clock-ico">&#128337;</span>${result}`; btn.classList.remove('empty'); }
+        }
+      });
+    });
+    row.querySelectorAll('[data-field]:not([data-timebtn])').forEach(inp=>{
       if(inp.tagName === 'TEXTAREA'){
         inp.addEventListener('input', ()=> autoGrowTextarea(inp));
       }
@@ -1241,6 +1285,28 @@ function showDestinoPicker(title){
     document.getElementById('modalCancel').onclick = ()=> cleanup(null);
   });
 }
+function showTimePicker(initial){
+  return new Promise(resolve=>{
+    const parts = (initial||'').split(':');
+    const ih = (parts[0]||'00').padStart(2,'0');
+    const im = (parts[1]||'00').padStart(2,'0');
+    const overlay = document.getElementById('modalOverlay');
+    const box = document.getElementById('modalBox');
+    const hours = Array.from({length:24},(_,i)=>String(i).padStart(2,'0'));
+    const mins = Array.from({length:60},(_,i)=>String(i).padStart(2,'0'));
+    box.innerHTML = `<h4>Elegí la hora (24&nbsp;hs)</h4>
+      <div class="time-picker-row">
+        <select id="tpHour">${hours.map(h=>`<option ${h===ih?'selected':''}>${h}</option>`).join('')}</select>
+        <span class="time-picker-colon">:</span>
+        <select id="tpMin">${mins.map(m=>`<option ${m===im?'selected':''}>${m}</option>`).join('')}</select>
+      </div>
+      <div class="modal-actions"><button class="btn ghost" id="modalCancel">Cancelar</button><button class="btn" id="modalOk">Listo</button></div>`;
+    overlay.classList.add('open');
+    const cleanup = (val)=>{ overlay.classList.remove('open'); resolve(val); };
+    document.getElementById('modalOk').onclick = ()=> cleanup(document.getElementById('tpHour').value + ':' + document.getElementById('tpMin').value);
+    document.getElementById('modalCancel').onclick = ()=> cleanup(null);
+  });
+}
 
 /* ============ renders per tab ============ */
 function renderHoteles(){
@@ -1264,17 +1330,99 @@ function renderHoteles(){
   document.getElementById('hotelesTotal').textContent = 'Total: ' + fmt(total);
 }
 function renderTraslados(){
-  renderGroupedTable('trasladosBody', 'traslados', [
-    {key:'tipo', label:'Tipo', type:'select', options:TIPOS_TRASLADO, width:140},
-    {key:'fecha', label:'Fecha', type:'date', width:135},
-    {key:'hora', label:'Hora', type:'time', width:110},
-    {key:'origen', label:'Origen', type:'text', width:170},
-    {key:'destinoLugar', label:'Destino', type:'text', width:170},
-    {key:'precio', label:'Monto', type:'number', money:true, width:130},
-    {key:'precioPersona', label:'Monto p/persona', type:'computed', money:true, width:150, compute:(t)=> (Number(t.precio)||0)/personasCount()},
-    {key:'pagado', label:'Pagado', type:'checkbox', width:80},
-    {key:'notas', label:'Notas', type:'textarea', width:220},
-  ], 'traslados', 'fecha');
+  const container = document.getElementById('trasladosBody');
+  const prevScroller = container.querySelector('.table-scroll');
+  const prevScrollLeft = prevScroller ? prevScroller.scrollLeft : 0;
+
+  if(state.destinos.length === 0){
+    container.innerHTML = `<div class="empty"><b>Primero cargá un destino</b>Andá a Resumen y agregá al menos un destino para poder cargar traslados.</div>`;
+  } else if(state.traslados.length === 0){
+    container.innerHTML = `<div class="empty"><b>Todavía no hay traslados</b>Usá el botón "+ Agregar traslado" de arriba para cargar el primero.</div>`;
+  } else {
+    const rows = [...state.traslados].sort((a,b)=>{
+      if(!a.fecha && !b.fecha) return 0;
+      if(!a.fecha) return 1;
+      if(!b.fecha) return -1;
+      return a.fecha.localeCompare(b.fecha);
+    });
+    let html = `<div class="table-scroll"><table class="dtab"><thead><tr>
+      <th style="min-width:170px">Origen</th>
+      <th style="min-width:170px">Destino</th>
+      <th style="min-width:140px">Tipo</th>
+      <th style="min-width:135px">Fecha</th>
+      <th style="min-width:100px">Hora</th>
+      <th style="min-width:130px">Monto</th>
+      <th style="min-width:150px">Monto p/persona</th>
+      <th style="min-width:80px">Pagado</th>
+      <th style="min-width:220px">Notas</th>
+      <th></th>
+    </tr></thead><tbody>`;
+    rows.forEach(t=>{
+      html += `<tr data-id="${t.id}">
+        <td class="cellwrap"><input data-field="origen" type="text" list="destinosDatalist" value="${escapeHtml(t.origen)}" placeholder="Elegir o escribir"></td>
+        <td class="cellwrap"><input data-field="destinoLugar" type="text" list="destinosDatalist" value="${escapeHtml(t.destinoLugar)}" placeholder="Elegir o escribir"></td>
+        <td class="cellwrap"><select data-field="tipo">${TIPOS_TRASLADO.map(o=>`<option ${o===t.tipo?'selected':''}>${o}</option>`).join('')}</select></td>
+        <td class="cellwrap"><input data-field="fecha" type="date" value="${escapeHtml(t.fecha)}"></td>
+        <td class="cellwrap"><button type="button" class="time-btn${t.hora?'':' empty'}" data-timebtn="1">${t.hora?`<span class="clock-ico">&#128337;</span>${t.hora}`:'<span class="clock-ico">&#128337;</span>Elegir hora'}</button></td>
+        <td class="cellwrap money"><div class="money-wrap"><span class="currency-prefix">${escapeHtml(state.meta.moneda)}</span><input data-field="precio" type="number" step="0.01" min="0" value="${t.precio}"></div></td>
+        <td><div class="computed-val" data-persona-for="${t.id}">${fmt((Number(t.precio)||0)/personasCount())}</div></td>
+        <td class="cellwrap check"><input data-field="pagado" type="checkbox" ${t.pagado?'checked':''}></td>
+        <td class="cellwrap"><textarea data-field="notas" rows="1" placeholder="Un ítem por línea">${escapeHtml(t.notas)}</textarea></td>
+        <td><button class="icon-btn" title="Eliminar">✕</button></td>
+      </tr>`;
+    });
+    html += '</tbody></table></div>';
+    container.innerHTML = html;
+    const newScroller = container.querySelector('.table-scroll');
+    if(newScroller) newScroller.scrollLeft = prevScrollLeft;
+    container.querySelectorAll('textarea[data-field]').forEach(autoGrowTextarea);
+
+    container.querySelectorAll('tr[data-id]').forEach(row=>{
+      const id = row.dataset.id;
+      const item = state.traslados.find(x=>x.id===id);
+
+      row.querySelectorAll('[data-timebtn]').forEach(btn=>{
+        btn.addEventListener('click', async ()=>{
+          const result = await showTimePicker(item.hora);
+          if(result){
+            item.hora = result;
+            queueSave();
+            btn.innerHTML = `<span class="clock-ico">&#128337;</span>${result}`;
+            btn.classList.remove('empty');
+          }
+        });
+      });
+
+      row.querySelectorAll('[data-field]').forEach(inp=>{
+        if(inp.tagName === 'TEXTAREA'){
+          inp.addEventListener('input', ()=> autoGrowTextarea(inp));
+        } else {
+          inp.addEventListener('keydown', (e)=>{
+            if(e.key === 'Enter'){ e.preventDefault(); inp.blur(); }
+          });
+        }
+        inp.addEventListener('change', ()=>{
+          const key = inp.dataset.field;
+          if(inp.type === 'checkbox') item[key] = inp.checked;
+          else if(inp.type === 'number') item[key] = Number(inp.value);
+          else item[key] = inp.value;
+          queueSave();
+          renderResumen();
+          if(key === 'precio'){
+            const cell = container.querySelector(`[data-persona-for="${id}"]`);
+            if(cell) cell.textContent = fmt((Number(item.precio)||0)/personasCount());
+            const total = state.traslados.reduce((s,t)=>s+(Number(t.precio)||0),0);
+            document.getElementById('trasladosTotal').textContent = 'Total: ' + fmt(total);
+          }
+        });
+      });
+      row.querySelector('.icon-btn').addEventListener('click', ()=>{
+        state.traslados = state.traslados.filter(x=>x.id!==id);
+        queueSave(); renderAll();
+      });
+    });
+  }
+
   const total = state.traslados.reduce((s,t)=>s+(Number(t.precio)||0),0);
   document.getElementById('trasladosTotal').textContent = 'Total: ' + fmt(total);
 }
@@ -1282,7 +1430,7 @@ function renderExcursiones(){
   renderGroupedTable('excursionesBody', 'excursiones', [
     {key:'nombre', label:'Excursión', type:'text', width:220},
     {key:'fecha', label:'Fecha', type:'date', width:135},
-    {key:'hora', label:'Hora', type:'time', width:110},
+    {key:'hora', label:'Hora', type:'time24', width:100},
     {key:'precio', label:'Monto', type:'number', money:true, width:130},
     {key:'precioPersona', label:'Monto p/persona', type:'computed', money:true, width:150, compute:(e)=> (Number(e.precio)||0)/personasCount()},
     {key:'pagado', label:'Pagado', type:'checkbox', width:80},
@@ -1485,7 +1633,12 @@ function renderItinerario(){
   });
 }
 
+function updateDestinosDatalist(){
+  const dl = document.getElementById('destinosDatalist');
+  dl.innerHTML = state.destinos.map(d=>`<option value="${escapeHtml(d.nombre||'')}">`).join('');
+}
 function renderAll(){
+  updateDestinosDatalist();
   renderResumen();
   renderHoteles();
   renderTraslados();
@@ -1519,7 +1672,9 @@ document.getElementById('addHotel').onclick = async ()=>{
 };
 document.getElementById('addTraslado').onclick = async ()=>{
   if(await needsDestino()) return;
-  state.traslados.push({id:uid(), destinoId:state.destinos[0].id, tipo:'Vuelo', fecha:'', hora:'', origen:'', destinoLugar:'', precio:0, pagado:false, notas:''});
+  const destinoId = await showDestinoPicker('¿Para qué destino es este traslado?');
+  if(!destinoId) return;
+  state.traslados.push({id:uid(), destinoId, tipo:'Avión', fecha:'', hora:'', origen:'', destinoLugar:'', precio:0, pagado:false, notas:''});
   queueSave(); renderTraslados(); renderResumen();
 };
 document.getElementById('addExcursion').onclick = async ()=>{

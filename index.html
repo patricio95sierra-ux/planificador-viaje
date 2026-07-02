@@ -1672,7 +1672,9 @@ document.getElementById('addHotel').onclick = async ()=>{
 };
 document.getElementById('addTraslado').onclick = async ()=>{
   if(await needsDestino()) return;
-  state.traslados.push({id:uid(), destinoId:state.destinos[0].id, tipo:'Avión', fecha:'', hora:'', origen:'', destinoLugar:'', precio:0, pagado:false, notas:''});
+  const destinoId = await showDestinoPicker('¿Para qué destino es este traslado?');
+  if(!destinoId) return;
+  state.traslados.push({id:uid(), destinoId, tipo:'Avión', fecha:'', hora:'', origen:'', destinoLugar:'', precio:0, pagado:false, notas:''});
   queueSave(); renderTraslados(); renderResumen();
 };
 document.getElementById('addExcursion').onclick = async ()=>{

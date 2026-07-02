@@ -447,6 +447,7 @@
       <div><h2>Hoteles</h2><p>Alojamiento por destino. El precio se refleja solo en Gastos.</p></div>
       <div class="panel-head-actions">
         <div class="tab-total" id="hotelesTotal">Total: $0,00</div>
+        <div class="tab-total" id="hotelesTotalPersona">Total p/persona: $0,00</div>
         <button class="btn" id="addHotel">+ Agregar hotel</button>
       </div>
     </div>
@@ -459,6 +460,7 @@
       <div><h2>Traslados</h2><p>Vuelos, trenes, buses. El precio se refleja solo en Gastos.</p></div>
       <div class="panel-head-actions">
         <div class="tab-total" id="trasladosTotal">Total: $0,00</div>
+        <div class="tab-total" id="trasladosTotalPersona">Total p/persona: $0,00</div>
         <button class="btn" id="addTraslado">+ Agregar traslado</button>
       </div>
     </div>
@@ -486,6 +488,7 @@
       <div><h2>Excursiones</h2><p>Actividades y tours. El precio se refleja solo en Gastos.</p></div>
       <div class="panel-head-actions">
         <div class="tab-total" id="excursionesTotal">Total: $0,00</div>
+        <div class="tab-total" id="excursionesTotalPersona">Total p/persona: $0,00</div>
         <button class="btn" id="addExcursion">+ Agregar excursión</button>
       </div>
     </div>
@@ -826,6 +829,13 @@ function escapeHtml(s){
 }
 /* Gastos = union of auto rows (derived from Hoteles/Traslados/Excursiones) + manual rows (Comida/Extras).
    This is what makes "agregar un hotel" show up in Gastos sin cargarlo dos veces. */
+function matchDestinoByName(name){
+  if(!name) return null;
+  const norm = name.trim().toLowerCase();
+  if(!norm) return null;
+  const found = state.destinos.find(d=>(d.nombre||'').trim().toLowerCase()===norm);
+  return found ? found.id : null;
+}
 function allExpenseRows(destinoId){
   let rows = [];
   state.hoteles.forEach(h=> rows.push({
@@ -834,8 +844,8 @@ function allExpenseRows(destinoId){
     monto:Number(h.precioTotal)||0, pagado:!!h.pagado, auto:true, tab:'hoteles'
   }));
   state.traslados.forEach(t=> rows.push({
-    id:t.id, destinoId:t.destinoId, categoria:'Traslados',
-    descripcion:(t.tipo||'Traslado') + ((t.origen||t.destinoLugar) ? `: ${t.origen||'?'} → ${t.destinoLugar||'?'}` : ''),
+    id:t.id, destinoId: matchDestinoByName(t.origen) || t.destinoId, categoria:'Traslados',
+    descripcion: (t.tipo ? `${t.tipo}: ` : '') + (t.origen || t.destinoLugar ? `${t.origen||'?'} → ${t.destinoLugar||'?'}` : 'Traslado'),
     fecha: t.fecha || '',
     monto:Number(t.precio)||0, pagado:!!t.pagado, auto:true, tab:'traslados'
   }));
@@ -1328,6 +1338,7 @@ function renderHoteles(){
   ], 'hoteles', 'checkin');
   const total = state.hoteles.reduce((s,h)=>s+(Number(h.precioTotal)||0),0);
   document.getElementById('hotelesTotal').textContent = 'Total: ' + fmt(total);
+  document.getElementById('hotelesTotalPersona').textContent = 'Total p/persona: ' + fmt(total/personasCount());
 }
 function renderTraslados(){
   const container = document.getElementById('trasladosBody');
@@ -1349,6 +1360,7 @@ function renderTraslados(){
       <th style="min-width:170px">Origen</th>
       <th style="min-width:170px">Destino</th>
       <th style="min-width:140px">Tipo</th>
+      <th style="min-width:150px">Terminal</th>
       <th style="min-width:135px">Fecha</th>
       <th style="min-width:100px">Hora</th>
       <th style="min-width:130px">Monto</th>
@@ -1362,6 +1374,7 @@ function renderTraslados(){
         <td class="cellwrap"><input data-field="origen" type="text" list="destinosDatalist" value="${escapeHtml(t.origen)}" placeholder="Elegir o escribir"></td>
         <td class="cellwrap"><input data-field="destinoLugar" type="text" list="destinosDatalist" value="${escapeHtml(t.destinoLugar)}" placeholder="Elegir o escribir"></td>
         <td class="cellwrap"><select data-field="tipo">${TIPOS_TRASLADO.map(o=>`<option ${o===t.tipo?'selected':''}>${o}</option>`).join('')}</select></td>
+        <td class="cellwrap"><input data-field="terminal" type="text" value="${escapeHtml(t.terminal)}" placeholder="Terminal / puerta"></td>
         <td class="cellwrap"><input data-field="fecha" type="date" value="${escapeHtml(t.fecha)}"></td>
         <td class="cellwrap"><button type="button" class="time-btn${t.hora?'':' empty'}" data-timebtn="1">${t.hora?`<span class="clock-ico">&#128337;</span>${t.hora}`:'<span class="clock-ico">&#128337;</span>Elegir hora'}</button></td>
         <td class="cellwrap money"><div class="money-wrap"><span class="currency-prefix">${escapeHtml(state.meta.moneda)}</span><input data-field="precio" type="number" step="0.01" min="0" value="${t.precio}"></div></td>
@@ -1413,6 +1426,7 @@ function renderTraslados(){
             if(cell) cell.textContent = fmt((Number(item.precio)||0)/personasCount());
             const total = state.traslados.reduce((s,t)=>s+(Number(t.precio)||0),0);
             document.getElementById('trasladosTotal').textContent = 'Total: ' + fmt(total);
+            document.getElementById('trasladosTotalPersona').textContent = 'Total p/persona: ' + fmt(total/personasCount());
           }
         });
       });
@@ -1425,6 +1439,7 @@ function renderTraslados(){
 
   const total = state.traslados.reduce((s,t)=>s+(Number(t.precio)||0),0);
   document.getElementById('trasladosTotal').textContent = 'Total: ' + fmt(total);
+  document.getElementById('trasladosTotalPersona').textContent = 'Total p/persona: ' + fmt(total/personasCount());
 }
 function renderExcursiones(){
   renderGroupedTable('excursionesBody', 'excursiones', [
@@ -1438,6 +1453,7 @@ function renderExcursiones(){
   ], 'excursiones', 'fecha');
   const total = state.excursiones.reduce((s,e)=>s+(Number(e.precio)||0),0);
   document.getElementById('excursionesTotal').textContent = 'Total: ' + fmt(total);
+  document.getElementById('excursionesTotalPersona').textContent = 'Total p/persona: ' + fmt(total/personasCount());
 }
 
 
@@ -1672,9 +1688,7 @@ document.getElementById('addHotel').onclick = async ()=>{
 };
 document.getElementById('addTraslado').onclick = async ()=>{
   if(await needsDestino()) return;
-  const destinoId = await showDestinoPicker('¿Para qué destino es este traslado?');
-  if(!destinoId) return;
-  state.traslados.push({id:uid(), destinoId, tipo:'Avión', fecha:'', hora:'', origen:'', destinoLugar:'', precio:0, pagado:false, notas:''});
+  state.traslados.push({id:uid(), destinoId:state.destinos[0].id, tipo:'Avión', terminal:'', fecha:'', hora:'', origen:'', destinoLugar:'', precio:0, pagado:false, notas:''});
   queueSave(); renderTraslados(); renderResumen();
 };
 document.getElementById('addExcursion').onclick = async ()=>{

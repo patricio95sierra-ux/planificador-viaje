@@ -118,6 +118,28 @@
     font-family:'Montserrat',sans-serif;font-weight:700;font-size:14px;color:var(--ink);
     background:var(--beige-dim);border:1px solid var(--line);padding:8px 14px;border-radius:8px;white-space:nowrap;
   }
+  .pasaje-box{
+    display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px;
+    background:#fff;border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);
+    padding:16px 20px;margin-bottom:20px;
+  }
+  .pasaje-box h3{font-family:'Montserrat',sans-serif;font-size:15px;margin:0 0 3px;}
+  .pasaje-box .hint{margin:0;max-width:420px;}
+  .pasaje-route{display:flex;align-items:center;gap:8px;margin-top:10px;}
+  .pasaje-route input{
+    width:130px;border:1px solid var(--line);border-radius:8px;padding:7px 10px;
+    font-family:'Public Sans',sans-serif;font-size:13px;color:var(--ink);background:var(--paper-dim);
+  }
+  .pasaje-route input:focus{outline:none;border-color:var(--sky);background:var(--sky-dim);}
+  .pasaje-route .pasaje-arrow{color:var(--slate);font-size:15px;}
+  .pasaje-fields{display:flex;align-items:center;gap:16px;flex-wrap:wrap;}
+  .pasaje-input{width:140px;}
+  .pasaje-input input{border:1px solid var(--line);}
+  .pasaje-check{
+    display:flex;align-items:center;gap:7px;font-family:'Public Sans',sans-serif;font-size:13px;color:var(--ink-soft);
+    white-space:nowrap;cursor:pointer;
+  }
+  .pasaje-check input{width:16px;height:16px;accent-color:var(--sky);cursor:pointer;}
   .panel-head h2{
     font-family:'Montserrat',sans-serif;font-size:22px;font-weight:700;margin:0;
   }
@@ -242,12 +264,12 @@
   .cellwrap input:hover,.cellwrap select:hover,.cellwrap textarea:hover{border-color:var(--line);}
   .cellwrap input:focus,.cellwrap select:focus,.cellwrap textarea:focus{border-color:var(--sky);outline:none;background:var(--sky-dim);}
   .cellwrap textarea{min-height:36px;resize:none;overflow:hidden;line-height:1.4;font-family:'Public Sans',sans-serif;white-space:pre-wrap;}
-  .cellwrap.money{position:relative;}
-  .cellwrap.money input{font-family:'Public Sans',sans-serif;padding-left:22px;}
-  .cellwrap.money .currency-prefix{
-    position:absolute;left:9px;top:50%;transform:translateY(-50%);
-    font-family:'Public Sans',sans-serif;font-size:12px;color:var(--slate);pointer-events:none;
+  .money-wrap{display:flex;align-items:center;gap:5px;width:100%;}
+  .money-wrap .currency-prefix{
+    flex:0 0 auto;font-family:'Public Sans',sans-serif;font-size:12px;color:var(--slate);
+    pointer-events:none;white-space:nowrap;padding-left:6px;
   }
+  .money-wrap input{flex:1 1 auto;min-width:0;font-family:'Public Sans',sans-serif;}
   .group-caption{
     font-family:'Public Sans',sans-serif;font-size:11px;letter-spacing:.08em;text-transform:uppercase;
     background:var(--ink);color:var(--beige);padding:8px 12px;
@@ -426,6 +448,21 @@
         <button class="btn" id="addTraslado">+ Agregar traslado</button>
       </div>
     </div>
+    <div class="pasaje-box">
+      <div>
+        <h3>Pasaje principal</h3>
+        <p class="hint">El vuelo o pasaje central para llegar al destino, antes de contar los traslados internos de cada lugar.</p>
+        <div class="pasaje-route">
+          <input id="pasajeOrigen" type="text" placeholder="Origen">
+          <span class="pasaje-arrow">&rarr;</span>
+          <input id="pasajeDestino" type="text" placeholder="Destino">
+        </div>
+      </div>
+      <div class="pasaje-fields">
+        <div class="cellwrap money pasaje-input"><div class="money-wrap"><span class="currency-prefix" id="pasajeCurrencyPrefix">$</span><input id="pasajeMonto" type="number" step="0.01" min="0" placeholder="0.00"></div></div>
+        <label class="pasaje-check"><input type="checkbox" id="pasajeSuma"> Sumar al total del viaje</label>
+      </div>
+    </div>
     <div id="trasladosBody"></div>
   </section>
 
@@ -554,7 +591,7 @@ const INDEX_KEY = 'trips-index';
 function tripKey(id){ return id === 'legacy' ? LEGACY_KEY : `trip-${id}`; }
 function blankTrip(title){
   return {
-    meta: {title: title || 'Nuevo viaje', personas:1, moneda:'$'},
+    meta: {title: title || 'Nuevo viaje', personas:1, moneda:'$', pasajeMonto:0, pasajeSuma:true, pasajeOrigen:'', pasajeDestino:''},
     destinos: [], hoteles: [], traslados: [], excursiones: [], gastos: [], itinerario: []
   };
 }
@@ -570,7 +607,7 @@ let charts = {stack:null, donut:null};
 function uid(){ return 'id' + Math.random().toString(36).slice(2,10) + Date.now().toString(36); }
 function fmt(n){
   n = Number(n)||0;
-  return state.meta.moneda + n.toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  return state.meta.moneda + ' ' + n.toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2});
 }
 function personasCount(){ return Number(state.meta.personas)||1; }
 
@@ -659,13 +696,21 @@ async function doSave(){
 }
 
 /* ============ trip switching ============ */
+function syncMetaInputs(){
+  document.getElementById('tripTitle').value = state.meta.title || 'Nuevo viaje';
+  document.getElementById('tripPersonas').value = state.meta.personas || 1;
+  document.getElementById('tripMoneda').value = state.meta.moneda || '$';
+  document.getElementById('pasajeMonto').value = state.meta.pasajeMonto || 0;
+  document.getElementById('pasajeSuma').checked = state.meta.pasajeSuma !== false;
+  document.getElementById('pasajeOrigen').value = state.meta.pasajeOrigen || '';
+  document.getElementById('pasajeDestino').value = state.meta.pasajeDestino || '';
+  document.getElementById('pasajeCurrencyPrefix').textContent = state.meta.moneda || '$';
+}
 async function switchTrip(id){
   currentTripId = id;
   gastoEditingIds.clear();
   await loadTripData(id);
-  document.getElementById('tripTitle').value = state.meta.title || 'Nuevo viaje';
-  document.getElementById('tripPersonas').value = state.meta.personas || 1;
-  document.getElementById('tripMoneda').value = state.meta.moneda || '$';
+  syncMetaInputs();
   switchTab('resumen');
   renderAll();
   renderSidebar();
@@ -679,9 +724,7 @@ async function createTrip(){
   await saveTripsIndex();
   currentTripId = id;
   state = blankTrip(name);
-  document.getElementById('tripTitle').value = state.meta.title;
-  document.getElementById('tripPersonas').value = state.meta.personas;
-  document.getElementById('tripMoneda').value = state.meta.moneda;
+  syncMetaInputs();
   switchTab('resumen');
   renderAll();
   renderSidebar();
@@ -852,7 +895,8 @@ function renderResumen(){
 
   // stat strip
   const allRows = allExpenseRows();
-  const totalViaje = allRows.reduce((s,r)=>s+r.monto,0);
+  const pasajeExtra = state.meta.pasajeSuma !== false ? (Number(state.meta.pasajeMonto)||0) : 0;
+  const totalViaje = allRows.reduce((s,r)=>s+r.monto,0) + pasajeExtra;
   const pendiente = allRows.filter(r=>!r.pagado).reduce((s,r)=>s+r.monto,0);
   const totalDias = state.destinos.reduce((s,d)=>s+(Number(d.dias)||0),0);
   const personas = personasCount();
@@ -1016,14 +1060,16 @@ function niceCeil(v){
   return nice*mag;
 }
 function fmtShort(n){
-  if(n>=1000) return state.meta.moneda + Math.round(n/1000)+'k';
-  return state.meta.moneda + Math.round(n);
+  if(n>=1000) return state.meta.moneda + ' ' + Math.round(n/1000)+'k';
+  return state.meta.moneda + ' ' + Math.round(n);
 }
 
 /* ============ generic grouped-table renderer ============ */
 /* fields: [{key,label,type:'text'|'number'|'date'|'time'|'select'|'checkbox'|'computed',options?,money?,compute?}] */
 function renderGroupedTable(containerId, listKey, fields, emptyLabel, sortField){
   const container = document.getElementById(containerId);
+  const prevScroller = container.querySelector('.table-scroll');
+  const prevScrollLeft = prevScroller ? prevScroller.scrollLeft : 0;
   let items = state[listKey];
   if(sortField){
     items = [...items].sort((a,b)=>{
@@ -1064,13 +1110,15 @@ function renderGroupedTable(containerId, listKey, fields, emptyLabel, sortField)
       } else if(f.type === 'textarea'){
         html += `<td class="cellwrap"><textarea data-field="${f.key}" rows="1" placeholder="Un ítem por línea">${escapeHtml(val)}</textarea></td>`;
       } else {
-        html += `<td class="cellwrap${f.money?' money':''}">${f.money?`<span class="currency-prefix">${escapeHtml(state.meta.moneda)}</span>`:''}<input data-field="${f.key}" type="${f.type}" ${f.money?'step="0.01" min="0"':''} value="${escapeHtml(val)}" placeholder="${f.money?'0.00':''}"></td>`;
+        html += `<td class="cellwrap${f.money?' money':''}">${f.money?`<div class="money-wrap"><span class="currency-prefix">${escapeHtml(state.meta.moneda)}</span><input data-field="${f.key}" type="${f.type}" step="0.01" min="0" value="${escapeHtml(val)}" placeholder="0.00"></div>`:`<input data-field="${f.key}" type="${f.type}" value="${escapeHtml(val)}" placeholder="">`}</td>`;
       }
     });
     html += `<td><button class="icon-btn" title="Eliminar">✕</button></td></tr>`;
   });
   html += '</tbody></table></div>';
   container.innerHTML = html;
+  const newScroller = container.querySelector('.table-scroll');
+  if(newScroller) newScroller.scrollLeft = prevScrollLeft;
   container.querySelectorAll('textarea[data-field]').forEach(autoGrowTextarea);
 
   container.querySelectorAll('tr[data-id]').forEach(row=>{
@@ -1079,6 +1127,11 @@ function renderGroupedTable(containerId, listKey, fields, emptyLabel, sortField)
     row.querySelectorAll('[data-field]').forEach(inp=>{
       if(inp.tagName === 'TEXTAREA'){
         inp.addEventListener('input', ()=> autoGrowTextarea(inp));
+      }
+      if(inp.tagName !== 'TEXTAREA'){
+        inp.addEventListener('keydown', (e)=>{
+          if(e.key === 'Enter'){ e.preventDefault(); inp.blur(); }
+        });
       }
       inp.addEventListener('change', ()=>{
         const key = inp.dataset.field;
@@ -1244,6 +1297,7 @@ function renderExcursiones(){
    filas manuales (Comida/Extras, editables). Agrupado por destino. */
 function renderGastos(){
   const container = document.getElementById('gastosBody');
+  const prevScrollLefts = [...container.querySelectorAll('.table-scroll')].map(el=>el.scrollLeft);
   if(state.destinos.length === 0){
     container.innerHTML = `<div class="empty"><b>Primero cargá un destino</b>Andá a Resumen y agregá al menos un destino para empezar a registrar gastos.</div>`;
     return;
@@ -1283,7 +1337,7 @@ function renderGastos(){
           <td class="cellwrap"><select data-field="categoria">${CATEGORIAS_MANUAL.map(c=>`<option ${c===r.categoria?'selected':''}>${c}</option>`).join('')}</select></td>
           <td class="cellwrap"><input data-field="descripcion" type="text" value="${escapeHtml(r.descripcion)}" placeholder="Descripción"></td>
           <td class="cellwrap"><input data-field="fecha" type="date" value="${escapeHtml(r.fecha)}"></td>
-          <td class="cellwrap money"><span class="currency-prefix">${escapeHtml(state.meta.moneda)}</span><input data-field="monto" type="number" step="0.01" min="0" value="${r.monto}"></td>
+          <td class="cellwrap money"><div class="money-wrap"><span class="currency-prefix">${escapeHtml(state.meta.moneda)}</span><input data-field="monto" type="number" step="0.01" min="0" value="${r.monto}"></div></td>
           <td>${montoPersona}</td>
           <td class="cellwrap check"><input data-field="pagado" type="checkbox" ${r.pagado?'checked':''}></td>
           <td><div class="row-actions"><button class="linkbtn" data-done="${r.id}">Listo</button><button class="icon-btn" title="Eliminar">✕</button></div></td>
@@ -1303,6 +1357,7 @@ function renderGastos(){
     html += '</tbody></table></div>';
   });
   container.innerHTML = html;
+  [...container.querySelectorAll('.table-scroll')].forEach((el,i)=>{ if(prevScrollLefts[i]) el.scrollLeft = prevScrollLefts[i]; });
 
   container.querySelectorAll('.linkbtn[data-jump]').forEach(btn=>{
     btn.addEventListener('click', ()=> switchTab(btn.dataset.jump));
@@ -1357,6 +1412,7 @@ function renderGastos(){
 
 function renderItinerario(){
   const container = document.getElementById('itinerarioBody');
+  const prevScrollLefts = [...container.querySelectorAll('.table-scroll')].map(el=>el.scrollLeft);
   if(state.destinos.length === 0){
     container.innerHTML = `<div class="empty"><b>Primero cargá un destino</b>Andá a Resumen y agregá al menos un destino para armar el itinerario.</div>`;
     return;
@@ -1397,12 +1453,18 @@ function renderItinerario(){
     html += '</tbody></table></div>';
   });
   container.innerHTML = html;
+  [...container.querySelectorAll('.table-scroll')].forEach((el,i)=>{ if(prevScrollLefts[i]) el.scrollLeft = prevScrollLefts[i]; });
   container.querySelectorAll('textarea[data-field]').forEach(autoGrowTextarea);
 
   container.querySelectorAll('tr[data-id]').forEach(row=>{
     const id = row.dataset.id;
     const item = state.itinerario.find(x=>x.id===id);
     row.querySelectorAll('[data-field]').forEach(inp=>{
+      if(inp.tagName !== 'TEXTAREA'){
+        inp.addEventListener('keydown', (e)=>{
+          if(e.key === 'Enter'){ e.preventDefault(); inp.blur(); }
+        });
+      }
       if(inp.tagName === 'TEXTAREA'){
         inp.addEventListener('input', ()=> autoGrowTextarea(inp));
       }
@@ -1493,7 +1555,15 @@ document.getElementById('tripTitle').addEventListener('change', e=>{
   }
 });
 document.getElementById('tripPersonas').addEventListener('change', e=>{ state.meta.personas = Number(e.target.value)||1; queueSave(); renderAll(); });
-document.getElementById('tripMoneda').addEventListener('change', e=>{ state.meta.moneda = e.target.value || '$'; queueSave(); renderAll(); });
+document.getElementById('tripMoneda').addEventListener('change', e=>{
+  state.meta.moneda = e.target.value || '$';
+  document.getElementById('pasajeCurrencyPrefix').textContent = state.meta.moneda;
+  queueSave(); renderAll();
+});
+document.getElementById('pasajeMonto').addEventListener('change', e=>{ state.meta.pasajeMonto = Number(e.target.value)||0; queueSave(); renderResumen(); });
+document.getElementById('pasajeSuma').addEventListener('change', e=>{ state.meta.pasajeSuma = e.target.checked; queueSave(); renderResumen(); });
+document.getElementById('pasajeOrigen').addEventListener('change', e=>{ state.meta.pasajeOrigen = e.target.value; queueSave(); });
+document.getElementById('pasajeDestino').addEventListener('change', e=>{ state.meta.pasajeDestino = e.target.value; queueSave(); });
 
 /* ============ sidebar controls ============ */
 document.getElementById('newTripBtn').addEventListener('click', createTrip);
@@ -1512,14 +1582,12 @@ document.addEventListener('visibilitychange', ()=>{
   buildTabs();
   await loadTripsIndex();
   if(tripsIndex.length){
-    currentTripId = tripsIndex[0].id;
+    currentTripId = tripsIndex[tripsIndex.length - 1].id;
     await loadTripData(currentTripId);
   } else {
     state = blankTrip('Mi próximo viaje');
   }
-  document.getElementById('tripTitle').value = state.meta.title || 'Mi próximo viaje';
-  document.getElementById('tripPersonas').value = state.meta.personas || 1;
-  document.getElementById('tripMoneda').value = state.meta.moneda || '$';
+  syncMetaInputs();
   renderAll();
   renderSidebar();
 })();

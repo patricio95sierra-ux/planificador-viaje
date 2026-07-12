@@ -508,8 +508,7 @@
   <!-- ITINERARIO -->
   <section class="panel" data-panel="itinerario">
     <div class="panel-head">
-      <div><h2>Itinerario</h2><p>Plan día a día dentro de cada destino.</p></div>
-      <button class="btn" id="addItem">+ Agregar actividad</button>
+      <div><h2>Itinerario</h2><p>Se arma solo: una fila por cada día cargado en "Días" (Resumen), con la fecha calculada desde el check-in del hotel de ese destino.</p></div>
     </div>
     <div id="itinerarioBody"></div>
   </section>
@@ -814,6 +813,7 @@ function switchTab(id){
   document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active', b.dataset.panel===id));
   document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active', p.dataset.panel===id));
   if(id==='resumen') renderResumen();
+  if(id==='itinerario') renderItinerario();
   const activePanel = document.querySelector('.panel.active');
   if(activePanel){
     activePanel.querySelectorAll('textarea[data-field]').forEach(autoGrowTextarea);
@@ -900,7 +900,7 @@ function renderResumen(){
       inp.addEventListener('change', ()=>{
         d[inp.dataset.field] = inp.type==='number' ? Number(inp.value) : inp.value;
         queueSave(); renderResumen();
-        if(inp.dataset.field === 'dias') renderHoteles();
+        if(inp.dataset.field === 'dias'){ renderHoteles(); syncItinerario(); }
       });
     });
     el.querySelector('.icon-btn').addEventListener('click', async ()=>{
@@ -1578,7 +1578,42 @@ function renderGastos(){
   });
 }
 
+function addDaysToDate(dateStr, n){
+  const parts = (dateStr||'').split('-').map(Number);
+  if(parts.length !== 3 || parts.some(isNaN)) return '';
+  const dt = new Date(parts[0], parts[1]-1, parts[2]);
+  dt.setDate(dt.getDate() + n);
+  return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+}
+function syncItinerario(){
+  let changed = false;
+  let next = [];
+  state.destinos.forEach(d=>{
+    const dias = Math.max(0, Number(d.dias)||0);
+    const hotelesDestino = state.hoteles.filter(h=>h.destinoId===d.id && h.checkin).map(h=>h.checkin).sort();
+    const baseCheckin = hotelesDestino.length ? hotelesDestino[0] : '';
+    const existingByDay = {};
+    state.itinerario.filter(it=>it.destinoId===d.id).forEach(it=>{ existingByDay[it.diaIndex] = it; });
+    for(let i=0;i<dias;i++){
+      let item = existingByDay[i];
+      const newFecha = baseCheckin ? addDaysToDate(baseCheckin, i) : '';
+      if(!item){
+        item = {id:uid(), destinoId:d.id, diaIndex:i, fecha:newFecha, excursiones:'', comida:''};
+        changed = true;
+      } else if(item.fecha !== newFecha){
+        item.fecha = newFecha;
+        changed = true;
+      }
+      next.push(item);
+    }
+  });
+  if(next.length !== state.itinerario.length) changed = true;
+  state.itinerario = next;
+  if(changed) queueSave();
+}
+
 function renderItinerario(){
+  syncItinerario();
   const container = document.getElementById('itinerarioBody');
   const prevScrollLefts = [...container.querySelectorAll('.table-scroll')].map(el=>el.scrollLeft);
   if(state.destinos.length === 0){
@@ -1586,36 +1621,29 @@ function renderItinerario(){
     return;
   }
   if(state.itinerario.length === 0){
-    container.innerHTML = `<div class="empty"><b>Todavía no hay actividades</b>Usá el botón "+ Agregar actividad" de arriba para cargar la primera.</div>`;
+    container.innerHTML = `<div class="empty"><b>Todavía no hay días para mostrar</b>Cargá los "Días" de cada destino en Resumen — el itinerario arma una fila por cada día automáticamente.</div>`;
     return;
   }
 
   let html = '';
   state.destinos.forEach(d=>{
-    const rows = state.itinerario.filter(it=>it.destinoId===d.id).sort((a,b)=>{
-      if(!a.fecha && !b.fecha) return 0;
-      if(!a.fecha) return 1;
-      if(!b.fecha) return -1;
-      return a.fecha.localeCompare(b.fecha);
-    });
+    const rows = state.itinerario.filter(it=>it.destinoId===d.id).sort((a,b)=>a.diaIndex-b.diaIndex);
     if(rows.length === 0) return;
     html += `<div class="group-caption">${escapeHtml(d.nombre||'Sin nombre')}</div>`;
     html += `<div class="table-scroll"><table class="dtab"><thead><tr>
+      <th style="min-width:60px">Día</th>
       <th style="min-width:135px">Fecha</th>
       <th style="min-width:150px">Día de la semana</th>
-      <th style="min-width:150px">Momento del día</th>
       <th style="min-width:220px">Excursiones</th>
       <th style="min-width:220px">Lugares de comida</th>
-      <th></th>
     </tr></thead><tbody>`;
     rows.forEach(it=>{
       html += `<tr data-id="${it.id}">
-        <td class="cellwrap"><input data-field="fecha" type="date" value="${escapeHtml(it.fecha)}"></td>
-        <td><div class="computed-val" data-weekday-for="${it.id}">${weekdayName(it.fecha) || '—'}</div></td>
-        <td class="cellwrap"><select data-field="momento">${['Mañana','Tarde','Noche'].map(o=>`<option ${o===it.momento?'selected':''}>${o}</option>`).join('')}</select></td>
-        <td class="cellwrap"><textarea data-field="excursiones" rows="3" placeholder="Un ítem por línea">${escapeHtml(it.excursiones)}</textarea></td>
-        <td class="cellwrap"><textarea data-field="comida" rows="3" placeholder="Un ítem por línea">${escapeHtml(it.comida)}</textarea></td>
-        <td><button class="icon-btn" title="Eliminar">✕</button></td>
+        <td class="plain-cell">${it.diaIndex+1}</td>
+        <td><div class="computed-val">${it.fecha ? formatDateDisplay(it.fecha) : 'Cargá el check-in del hotel'}</div></td>
+        <td><div class="computed-val">${weekdayName(it.fecha) || '—'}</div></td>
+        <td class="cellwrap"><textarea data-field="excursiones" rows="1" placeholder="Un ítem por línea">${escapeHtml(it.excursiones)}</textarea></td>
+        <td class="cellwrap"><textarea data-field="comida" rows="1" placeholder="Un ítem por línea">${escapeHtml(it.comida)}</textarea></td>
       </tr>`;
     });
     html += '</tbody></table></div>';
@@ -1628,27 +1656,11 @@ function renderItinerario(){
     const id = row.dataset.id;
     const item = state.itinerario.find(x=>x.id===id);
     row.querySelectorAll('[data-field]').forEach(inp=>{
-      if(inp.tagName !== 'TEXTAREA'){
-        inp.addEventListener('keydown', (e)=>{
-          if(e.key === 'Enter'){ e.preventDefault(); inp.blur(); }
-        });
-      }
-      if(inp.tagName === 'TEXTAREA'){
-        inp.addEventListener('input', ()=> autoGrowTextarea(inp));
-      }
+      inp.addEventListener('input', ()=> autoGrowTextarea(inp));
       inp.addEventListener('change', ()=>{
-        const key = inp.dataset.field;
-        item[key] = inp.value;
+        item[inp.dataset.field] = inp.value;
         queueSave();
-        if(key === 'fecha'){
-          const cell = container.querySelector(`[data-weekday-for="${id}"]`);
-          if(cell) cell.textContent = weekdayName(item.fecha) || '—';
-        }
       });
-    });
-    row.querySelector('.icon-btn').addEventListener('click', ()=>{
-      state.itinerario = state.itinerario.filter(x=>x.id!==id);
-      queueSave(); renderItinerario();
     });
   });
 }
@@ -1708,13 +1720,6 @@ document.getElementById('addGasto').onclick = async ()=>{
   state.gastos.push({id:newId, destinoId, categoria:'Extras', descripcion:'', fecha:'', monto:0, pagado:false});
   gastoEditingIds.add(newId);
   queueSave(); renderGastos(); renderResumen();
-};
-document.getElementById('addItem').onclick = async ()=>{
-  if(await needsDestino()) return;
-  const destinoId = await showDestinoPicker('¿Para qué destino es esta actividad?');
-  if(!destinoId) return;
-  state.itinerario.push({id:uid(), destinoId, fecha:'', momento:'Mañana', excursiones:'', comida:''});
-  queueSave(); renderItinerario();
 };
 
 

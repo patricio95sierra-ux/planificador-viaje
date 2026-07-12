@@ -814,6 +814,10 @@ function switchTab(id){
   document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active', b.dataset.panel===id));
   document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active', p.dataset.panel===id));
   if(id==='resumen') renderResumen();
+  const activePanel = document.querySelector('.panel.active');
+  if(activePanel){
+    activePanel.querySelectorAll('textarea[data-field]').forEach(autoGrowTextarea);
+  }
 }
 
 /* ============ destino helpers ============ */
